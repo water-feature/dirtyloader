@@ -10,6 +10,10 @@ First build: **M8 Headless 6.6.4A** on a Teensy 4.1. Everything below has run on
 with an SD card): upload over USB, loading at boot, the MODS page, per-song mod lists, the crash guard, and
 every implemented event, counted by `examples/core-selftest`.
 
+The Model:01 port uses manual SD installation and a text MOD LOADER.
+See [current Model:01 setup](MODEL01-664-PORT.md#current-build-and-installation)
+for its firmware build, supported workflow, and hardware results.
+
 | TELOS (Digitone mk1) | core 0.3 (M8 headless) |
 |---|---|
 | mods are files on the +Drive, loaded at boot | `.m8x` files on the SD card, loaded into free ITCM at boot |
@@ -65,16 +69,25 @@ mods (16).
 When a boot with mods crashes, Teensyduino's fault handler saves a crash record at `0x2027FF80` and reboots;
 the record and ITCM survive that reset (not a power cycle). The next `core_load` sees a crash after a boot with
 mods, writes `SKIP` to `guard`, loads nothing, and says so in `status.txt` with the crash pc. Nothing loads
-while `guard` says `SKIP`; `python -m dirtyloader.unit good` (or any change of mods) writes `GOOD`.
+while `guard` says `SKIP`. The full-core USB tool clears it with
+`python -m dirtyloader.unit good`.
 
 **Hangs** (core 0.4), as TELOS does it: a boot that loads mods writes `ARMD` to `guard` first, and `ev_tick`
-writes `GOOD` once the boot has run 10 s. A boot that finds `ARMD` (the last one hung, or lost power within
-10 s) writes `SKIP` and loads nothing. A restart asked for (USB RESTART, the API's `restart`, the MODS page)
-writes `GOOD` first: it is not a hang.
+writes `GOOD` once the boot has run 10 seconds. Mods load during boot.
+If the next boot finds `ARMD`, it writes `SKIP` and loads no mods.
+A hang, power-off, or ordinary restart within the first ten seconds
+can all leave `ARMD`. The full-core USB RESTART, API restart, and
+MODS page write `GOOD` before restarting.
 
 The MODS page's title says `SKIPPED: A CRASH`, `SKIPPED: NO 10 S RUN` or `SKIPPED` while the guard is set; its
 RESTART row writes `GOOD` and restarts, so the set gets another try. `core->last_crash` gives mods the crash
 record the boot found.
+
+On Model:01, MOD LOADER's ON/OFF setting records what to load on the
+next boot. It does not show whether the guard blocked that load.
+If `dirtyloader/status.txt` reports `SKIP`, use USB DRIVE to write the
+four bytes `GOOD` to `dirtyloader/guard`. Ejecting the drive reboots
+the M8. Let that boot run ten seconds before rebooting again.
 
 **Safe boot** (core 0.5), TELOS's missing "skip key at power-on" for a unit without keys:
 
@@ -146,6 +159,11 @@ checks it and returns 0 under an older core. Take it at `ev_boot`.
 
 `examples/core-api-demo` uses all of it: a page (song value, MIDI counts), a value kept with the song, a note
 sent out on EDIT, a note played in on RIGHT.
+
+For SD writes on all four targets, call
+`dl_core_file_write(path, buf, n)` from the UI thread. It returns the
+byte count on success or `-1` on failure. On Model:01 this accessor
+works with the limited SD API, and `dl_core()` returns null.
 
 ## MIDI (core 0.4)
 

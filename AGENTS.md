@@ -16,6 +16,10 @@ python -m dirtyloader.unit restart
 python -m dirtyloader.unit status                             # loaded? hooks? a crash?
 ```
 
+On Model:01, use USB DRIVE to copy the mod to `dirtyloader/mods/`.
+Enable it in MOD LOADER and read `dirtyloader/status.txt` after reboot.
+See [Model:01 setup](docs/MODEL01-664-PORT.md#current-build-and-installation).
+
 `python -m dirtyloader.cc info <file.m8x>` checks a file as core will. `python -m dirtyloader.m8screen shot.png`
 screenshots the M8 (`--keys` presses keys first). Events and prototypes: [docs/CORE-EVENTS.md](docs/CORE-EVENTS.md);
 the API: `dirtyloader/sdk/include/dl/core.h`.

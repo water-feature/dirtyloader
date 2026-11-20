@@ -20,7 +20,6 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, ROOT)
 
 from dirtyloader import cc  # noqa: E402
-from dirtyloader.core.build_model02 import _alias_dir  # noqa: E402
 
 SDK = os.path.join(ROOT, "dirtyloader", "sdk", "include", "dl")
 
@@ -47,13 +46,13 @@ def main() -> int:
     meta = json.load(open(os.path.join(HERE, "meta.json"), encoding="utf-8"))
     names = event_names()
     out_mods = []
+    default_targets = [target for target, info in meta["targets"].items() if "events" not in info]
     for m in meta["mods"]:
         builds = {}
-        for tid, t in meta["targets"].items():
+        for tid in m.get("targets", default_targets):
             srcs = [os.path.join(ROOT, s) for s in m["sources"]]
             try:
-                blob, info = cc.build_m8x(srcs, defines=t["defines"] or None,
-                                          includes=[_alias_dir(t["alias"])] if t["alias"] else ())
+                blob, info = cc.build_target(srcs, tid)
             except cc.CCError as e:
                 print(f"  {m['id']} for {tid}: not built ({str(e).splitlines()[0][:100]})")
                 continue
@@ -73,7 +72,7 @@ def main() -> int:
         if not builds:
             print(f"  {m['id']}: no build, left out")
             continue
-        entry = {k: v for k, v in m.items() if k != "sources"}
+        entry = {k: v for k, v in m.items() if k not in ("sources", "targets")}
         entry.update(version=version, header_title=mtitle, hooks=hooks, builds=builds,
                      source="https://github.com/irpina/dirtyloader/tree/main/" + os.path.dirname(m["sources"][0]))
         out_mods.append(entry)

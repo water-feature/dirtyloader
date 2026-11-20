@@ -41,9 +41,9 @@ This page takes you from nothing to a mod running on your M8. It starts from [`e
   if it can't run one.
 - **An M8 with core on it.** The shop's [Get started](https://irpina.github.io/dirtyloader/shop/#start) page builds
   core into Dirtywave's firmware file in the browser and flashes it. Core runs on the **M8 Headless 6.6.4A**, the
-  **Model:02 6.6.4A** (Dirtywave's current download) and the **Model:02 6.6.2A**. The Model:01 isn't supported yet.
-- **Nothing else** for talking to the M8 over USB: the tools open its serial port themselves. Close m8c (and the
-  shop's browser tab) while you use them: only one program can have the port open.
+  **Model:02 6.6.4A** and the **Model:02 6.6.2A**. For **Model:01 6.6.4A**, use the [command-line build and SD setup](MODEL01-664-PORT.md). See the [supported Model:01 hooks](CORE-EVENTS.md#model01-664a).
+- **For the USB workflow on Headless and Model:02**, the tools open the serial port themselves. Close m8c and the
+  shop's browser tab while you use them. On Model:01, copy mods to `dirtyloader/mods` on the SD card and use MOD LOADER.
 
 ## 2. Build hello and run it
 
@@ -62,7 +62,7 @@ m8-model02-664: ...
 m8-model01: ...
 ```
 
-Pick the file for your M8 (`python -m dirtyloader.unit info` says which firmware it runs: `0x00060604` is the
+On Headless and Model:02, pick the file for your M8 (`python -m dirtyloader.unit info` says which firmware it runs: `0x00060604` is the
 Headless 6.6.4A, `0x02060604` the Model:02 6.6.4A, `0x02060602` the Model:02 6.6.2A), then:
 
 ```bash
@@ -89,7 +89,14 @@ On the M8:
   MODS: RIGHT on its row.
 - **Both:** the Mod Menu (SYSTEM SETTINGS > MODS > MOD MENU) has every mod's page and setting.
 
-To switch it off again: `python -m dirtyloader.unit off hello.m8x`, then restart.
+On **Model:01**, copy `build/mods/m8-model01/hello.m8x` to
+`dirtyloader/mods/` on the SD card. Open MOD LOADER with all four
+directions and use EDIT to enable the mod, then reboot. The Model:01
+Hello build exercises TICK. Read `dirtyloader/status.txt` over USB DRIVE
+to confirm it loaded. EDIT toggles it off for the next boot.
+
+On Headless and Model:02, `python -m dirtyloader.unit off hello.m8x`
+switches it off for the next boot.
 
 ## 3. Your own mod
 
@@ -102,9 +109,22 @@ To switch it off again: `python -m dirtyloader.unit off hello.m8x`, then restart
 4. Build, `add`, `restart`, `status`, as above.
 
 `python -m dirtyloader.cc build <folder>` compiles every `.c` file in the folder into one mod. `--target
-m8-headless` (or `m8-model02`, `m8-model02-664`) builds only that one; `-o file.m8x` names the file when you build
+m8-headless` (or `m8-model02`, `m8-model02-664`, `m8-model01`) builds only that one; `-o file.m8x` names the file when you build
 one target; `-D NAME=VALUE` adds a define. `python -m dirtyloader.cc info file.m8x` checks a file as core will and
 shows its header.
+
+A single command can build one source for all four firmware targets.
+If the Model:01 build fails, the default command reports the reason
+and keeps the successful outputs. An explicit `--target m8-model01`
+returns an error. See [supported hooks](CORE-EVENTS.md#model01-664a).
+
+A mod that includes only `dl/mod.h` and uses shared hooks can keep
+`DL_FW` at its default of 0. If its code has no firmware-specific
+addresses or model conditionals, the same .m8x can be used on every
+core that provides the hooks it subscribes to. Including the selected
+firmware header pins the output to that firmware, which is necessary
+when the source calls stock routines or accesses firmware state.
+
 
 ## 4. How a mod is put together
 
@@ -145,7 +165,7 @@ DL_MOD("hello", "0.1.0", "Hello",
   *take* the event: the firmware doesn't do what it was about to (a key the screen doesn't see, a note that isn't
   played, a play that doesn't start). Take only what you mean to.
 - **Two threads.** The *UI thread* runs the screens, keys and SD card. The *audio thread* interrupts it every audio
-  block (64 frames at 44.1 kHz) and must finish quickly. A variable that both threads touch should be `volatile`, and
+  block (64 frames on Headless, 32 on Model:01 and Model:02, all at 44.1 kHz) and must finish quickly. A variable that both threads touch should be `volatile`, and
   should be one word (a `uint32_t` or a `float`) so neither side sees half of it.
 - **State** lives in `static` variables. Zeroed ones (`.bss`) are zeroed by core before `EV_BOOT`; ones with a value
   start with it. There's no `malloc`.
@@ -168,6 +188,11 @@ Everything is in [`dl/core.h`](../dirtyloader/sdk/include/dl/core.h), with the d
 exception). Check `core->version` before using anything added after 0.4: `0x500` for settings and the Mod Menu,
 `0x600` for `ram_claim`.
 
+On Model:01, `dl_core()` returns null. The shared
+`dl_core_file_write(path, buf, n)` accessor writes an absolute SD path
+from the UI thread on all four targets. It returns the byte count on
+success or `-1` on failure. SD heartbeat uses it from BOOT.
+
 | what | how | limit |
 |---|---|---|
 | a page of your own | `page_add(&page)`: `draw()` each frame, `key()` for keys (return 1 to keep a key, 0 to let core have it: OPT closes) | 8 pages |
@@ -182,7 +207,7 @@ exception). Check `core->version` before using anything added after 0.4: `0x500`
 
 ## 6. Drawing
 
-- **Text, every M8:** `fw_text(fw_grid, col, row, "TEXT")` writes into the firmware's 40 × 24 character grid. On
+- **Text on full-core mod pages:** `fw_text(fw_grid, col, row, "TEXT")` writes into the firmware's 40 × 24 character grid. On
   your page, core clears the screen when it opens and then calls `draw()` every frame: write every row you use,
   padded with spaces so last frame's text goes. Columns 34 and on are the firmware's (tempo, tracks). Letters show
   in capitals.
@@ -200,27 +225,13 @@ A mod is built once per firmware, because the firmware's addresses differ betwee
 the firmware it was built for (`DL_FW`), and core refuses one built for another firmware ("built for other
 firmware" in `status`).
 
-- **Always `#include "m8-headless/fw.h"`.** For the Model:02, the build puts that firmware's own header under that
-  name, so one include works for every target.
-- **`M8_MODEL02`** is defined for both Model:02 targets. The Model:02's header also defines what only it has, so
-  test those directly: `fw_rect` (the pixel screen), `fw_touch` (the touch screen), `FW_UI_VISUALIZER`
-  (the visualizer).
+- **`#include "m8-headless/fw.h"`** selects the device header through the builder's target alias.
+- **`M8_MODEL01`** identifies Model:01 6.6.4A. **`M8_MODEL02`** identifies both Model:02 targets.
+  Test for the binding your code uses. Both handheld targets define `fw_touch`,
+  and the Model:02 targets also expose `fw_rect` and `FW_UI_VISUALIZER`.
 - Everything you use from the firmware has to be in `fw.h`. Something that isn't (a new address) has to be found
   in every firmware first: [FIRMWARE-MAP.md](FIRMWARE-MAP.md) is the map, and
   [MODEL02-664-PORT.md](MODEL02-664-PORT.md) shows how addresses were found again for a new version.
-
-The `m8-model01` target builds for Model:01 6.6.4A and defines
-`M8_MODEL01`. The alias `m8-headless/fw.h` selects the Model:01 SDK
-header for that target. Running its output requires the matching
-Model:01 Dirtyloader core and manual SD installation. The existing
-Get started page covers Model:02 and Headless.
-
-From one source directory, the default build writes separate `.m8x`
-files into `build/mods/<target>/`. If a Model:01 build is skipped, the
-CLI prints the reason and keeps the other outputs. Requesting
-`--target m8-model01` explicitly makes that failure an error. The
-Model:01 target accepts BOOT, TICK, KEY, TOUCH, TRACK_AUDIO, and
-AUDIO_OUT subscriptions.
 
 ## 8. Memory, and where your code runs
 
@@ -282,6 +293,11 @@ got there loads nothing next time. Fix the mod (or switch it off), then `good` o
 won't boot far enough to talk, `python -m dirtyloader.unit safe` and replug it. The shop's
 [Recover](https://irpina.github.io/dirtyloader/shop/#recover) page does the same from a browser, and can put
 Dirtywave's own firmware back.
+
+**Model:01:** Use USB DRIVE for mod files and to read
+`dirtyloader/status.txt`. MOD LOADER shows the saved enable setting.
+If the crash guard is at `SKIP`, see the
+[Model:01 recovery steps](MODEL01-664-PORT.md#current-build-and-installation).
 
 **Seeing inside:** a `volatile` counter in your mod, read back with the unit's PEEK, tells you whether a handler
 runs (`Unit().peek(address, n)` in Python; your variables' addresses are your mod's load address in `status` plus

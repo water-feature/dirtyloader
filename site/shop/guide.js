@@ -246,7 +246,7 @@ async function guard(word) {
 export function renderStart() {
   if (!$('#fw-models')) return;
   $('#fw-models').innerHTML = index.map(e => `<button type="button" class="chip ${e.target === g.model ? 'on' : ''}" role="radio" aria-checked="${e.target === g.model}" data-model="${e.target}">${esc(e.label.replace('M8 ', ''))} <span class="n">${esc(e.firmware)}</span></button>`).join('')
-    + '<button type="button" class="chip" disabled title="Core isn\'t built for the Model:01 yet">Model:01 <span class="n">not yet</span></button>';
+    + '<button type="button" class="chip" disabled title="Model:01 firmware is built with the command-line tools and installed from SD">Model:01 <span class="n">SD setup</span></button>';
   const e = entry(), info = ctx.state.info;
   $('#fw-model-note').innerHTML = info?.target && index.some(x => x.target === info.target)
     ? `Your connected M8 is a ${esc(info.label)} on ${esc(info.version)}${info.core ? `, with core ${esc(info.core)} already` : ''}.`

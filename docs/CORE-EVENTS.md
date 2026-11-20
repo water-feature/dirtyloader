@@ -1,6 +1,6 @@
 [dirtyloader docs](../README.md) › Core events
 
-# The hook bus (core's events): the M8 Model:02
+# The hook bus (core's events)
 
 The M8 core follows Elekloader's hook bus: **the core owns the shared sites, and mods subscribe to its events**
 instead of patching them. Event names, the "when / C prototype / notes" table and the conventions match
@@ -8,12 +8,29 @@ Elekloader's (its `docs/ADAPTING.md`, "The hook bus"), so a mod author who knows
 M8 differs (no encoders, a touch screen, an audio-thread sequencer), it gets its own events, as the Digitone and
 the Octatrack do on the Elektron side.
 
-Firmware: **6.6.2A Model:02**. Every site and location below is pinned to that build; the evidence for each is
-in [FIRMWARE-MAP.md](FIRMWARE-MAP.md) and [hooks/](hooks/). **Status:** on Model:02 6.6.2A only `ev_tick` is
-built (core 0.1). **M8 Headless 6.6.4A** runs core 0.3, with the events in the next section, all counted on
-hardware by `examples/core-selftest` ([LOADER.md](LOADER.md)); core 0.4 adds the API mods call
-(`dl/core.h`). [PARITY-DN1.md](PARITY-DN1.md) sets all of it against Elekloader's Digitone mk1 core. The rest of
-this page is the Model:02 design.
+The original Model:02 mappings below are for 6.6.2A. The
+[Model:02 6.6.4A port](MODEL02-664-PORT.md) records the later bindings.
+The Headless section records its core 0.3–0.5 event work.
+
+## Model:01 6.6.4A
+
+The Model:01 menu build supports these mod subscriptions.
+
+| Event | C handler | Verification |
+| --- | --- | --- |
+| `EV_BOOT` | `void f(void)` | SD heartbeat passed ARM emulation |
+| `EV_TICK` | `void f(void)` | Tick probe verified on hardware |
+| `EV_KEY` | `int f(void *ui, int action)` | MOD LOADER key handling verified on hardware |
+| `EV_TOUCH` | `int f(void *touch)` | Touch Probe passed ARM emulation |
+| `EV_TRACK_AUDIO` | `void f(float *left, float *right, int track)` | Track Silence verified on hardware |
+| `EV_AUDIO_OUT` | `int f(float *left, float *right, int frames)` | Audio Tone passed ARM emulation |
+
+Audio hooks receive 32 frames per channel. Track numbers are zero-based.
+`EV_TOUCH` sees the state after the stock touch poll. A nonzero
+return consumes a key or touch event. See the
+[Model:01 port notes](MODEL01-664-PORT.md) for binding and test details.
+The loader dispatches `EV_CARD_READY` internally, but the Model:01
+builder does not currently accept it as a mod subscription.
 
 ## Implemented: M8 Headless 6.6.4A (core 0.3 to 0.5)
 

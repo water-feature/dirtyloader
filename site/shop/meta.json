@@ -3,7 +3,8 @@
   "targets": {
     "m8-model02": { "label": "M8 Model:02", "firmware": "6.6.2A", "defines": { "M8_MODEL02": "1" }, "alias": "6.6.2A" },
     "m8-model02-664": { "label": "M8 Model:02", "firmware": "6.6.4A", "defines": { "M8_MODEL02": "1" }, "alias": "6.6.4A" },
-    "m8-headless": { "label": "M8 Headless", "firmware": "6.6.4A", "defines": {}, "alias": null }
+    "m8-headless": { "label": "M8 Headless", "firmware": "6.6.4A", "defines": {}, "alias": null },
+    "m8-model01": { "label": "M8 Model:01", "firmware": "6.6.4A", "defines": { "M8_MODEL01": "1" }, "alias": "m8-model01-6.6.4A", "events": [1, 16, 50, 51, 64, 66] }
   },
   "categories": {
     "performance": { "label": "Performance", "tone": "peak" },
@@ -13,6 +14,14 @@
     "developer": { "label": "Developer", "tone": "info" }
   },
   "mods": [
+    {
+      "id": "model01-tick", "sources": ["examples/model01-tick/tick.c"], "targets": ["m8-model01"],
+      "category": "developer", "motif": "test", "dev": true,
+      "title": "Model:01 tick test",
+      "summary": "Writes dirtyloader/model01-tick.txt after its tick handler has run 16 times.",
+      "details": "Copy the mod to dirtyloader/mods on the card and enable it in MOD LOADER.",
+      "keys": [], "on_unit": "Loaded and ran on a Model:01 6.6.4A."
+    },
     {
       "id": "chaos-control", "sources": ["examples/chaos-control/chaos.c"], "category": "performance", "motif": "pad",
       "title": "CHAOS CONTROL",
@@ -75,21 +84,24 @@
     },
     {
       "id": "sd-heartbeat", "sources": ["examples/sd-heartbeat/heartbeat.c"], "category": "developer", "motif": "pulse", "dev": true,
+      "targets": ["m8-model02", "m8-model02-664", "m8-model01", "m8-headless"],
       "title": "SD heartbeat",
-      "summary": "The smallest mod: on a bare Teensy it blinks the LED to show that core loads mods. On a Model:02 it leaves the LED pin alone (the M8 uses it) and only shows up as loaded in core's status.",
-      "details": "", "keys": [], "on_unit": "Checked on a Teensy (headless) and on a Model:02 (6.6.4A). Before 0.1.1 it hung a Model:02."
+      "summary": "Writes a boot marker to the SD card and blinks the LED on a bare Teensy.",
+      "details": "Delete dirtyloader/sd-heartbeat.txt and restart with the mod enabled to check for a fresh marker. Model:01 needs firmware with the SD write API.", "keys": [], "on_unit": "The previous version was checked on Headless and Model:02 6.6.4A."
     },
     {
-      "id": "audio-tone", "sources": ["examples/audio-tone/tone.c"], "category": "developer", "motif": "tone", "dev": true,
+      "id": "audio-tone", "sources": ["examples/audio-tone/tone.c"],
+      "targets": ["m8-model02", "m8-model02-664", "m8-headless", "m8-model01"], "category": "developer", "motif": "tone", "dev": true,
       "title": "Audio tone",
       "summary": "Replaces the output with a 440 Hz tone: an example of ev_audio_out. Loud: not for a song.",
       "details": "", "keys": [], "on_unit": "Checked on a Headless 6.6.4A."
     },
     {
-      "id": "track-silence", "sources": ["examples/track-silence/silence.c"], "category": "developer", "motif": "flat", "dev": true,
+      "id": "track-silence", "sources": ["examples/track-silence/silence.c"],
+      "targets": ["m8-model02", "m8-model02-664", "m8-headless", "m8-model01"], "category": "developer", "motif": "flat", "dev": true,
       "title": "Track silence",
       "summary": "Silences track 1: an example of ev_track_audio, which hands a mod each track's audio.",
-      "details": "", "keys": [], "on_unit": "Checked on a Headless 6.6.4A."
+      "details": "Model:01 requires Dirtyloader firmware with the track audio hook.", "keys": [], "on_unit": "Checked on a Headless 6.6.4A."
     }
   ]
 }

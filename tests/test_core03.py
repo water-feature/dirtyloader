@@ -140,7 +140,7 @@ class TestM8x(unittest.TestCase):
 
     def test_header_and_subscriptions(self):
         m = cc.parse_m8x(self.blob)
-        self.assertEqual((m["id"], m["version"], m["abi"]), ("sd-heartbeat", "0.1.2", 1))
+        self.assertEqual((m["id"], m["version"], m["abi"]), ("sd-heartbeat", "0.1.3", 1))
         self.assertEqual(m["fw"], 0x00060604)
         self.assertEqual([(s["event"], s["order"]) for s in m["subscribe"]],
                          [(int(abi.Event.BOOT), 50), (int(abi.Event.TICK), 50), (int(abi.Event.TEMPO), 50)])

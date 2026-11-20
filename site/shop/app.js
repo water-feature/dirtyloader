@@ -121,7 +121,9 @@ function renderChips() {
   const opts = [['all', 'All', shown.length], ...Object.entries(t).map(([k, v]) => [k, shared(v) ? `${v.label} ${v.firmware}` : v.label, shown.filter(m => m.builds[k]).length])];
   $('#target-chips').innerHTML = opts.map(([k, label, n]) => `<button type="button" class="chip ${state.target === k ? 'on' : ''}" data-target="${k}">${esc(label)}<span class="n">${n}</span></button>`).join('');
   const dt = deviceTarget();
-  $('#target-note').textContent = dt ? `Your M8 is a ${state.info.label} on ${state.info.version}: Install puts that build on it.`
+  $('#target-note').textContent = state.target === 'm8-model01'
+    ? 'Download a Model:01 build and copy it to dirtyloader/mods on the SD card.'
+    : dt ? `Your M8 is a ${state.info.label} on ${state.info.version}: Install puts that build on it.`
     : state.target === 'all' ? "Every model's mods. Connect your M8, or pick its model, to see the ones that fit it." : `Mods built for the ${t[state.target].label} (firmware ${t[state.target].firmware}).`;
 }
 
@@ -129,6 +131,10 @@ function pillFor(mod) {
   const busy = state.busy.get(mod.id);
   if (busy !== undefined) return `<button class="pill" disabled>${busy < 1 ? Math.round(busy * 100) + '%' : 'Checking'}</button>`;
   const dt = deviceTarget();
+  const selected = dt || state.target;
+  if (mod.builds['m8-model01'] && (selected === 'm8-model01' || (selected === 'all' && Object.keys(mod.builds).length === 1))) {
+    return `<a class="pill" href="${esc(mod.builds['m8-model01'].file)}" download>Download</a>`;
+  }
   if (dt && !mod.builds[dt]) return `<button class="pill" disabled>Not for ${esc(state.info.label.replace('M8 ', ''))}</button>`;
   const inst = installed(mod);
   if (inst) {
@@ -177,7 +183,7 @@ function details(id) {
     <h2>${esc(m.title)} <span class="ver">v${esc(m.version)}</span></h2>
     <p>${esc(m.summary)}</p>${m.details ? `<p>${esc(m.details)}</p>` : ''}
     ${m.keys?.length ? `<h3>On the M8</h3><ul>${m.keys.map(k => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}
-    <h3>Files</h3><dl>${Object.entries(m.builds).map(([k, b]) => `<dt>${esc(t[k].label)}</dt><dd>${esc(t[k].firmware)} · ${b.size} bytes<br><span class="hash">sha256 ${b.sha256}</span></dd>`).join('')}</dl>
+    <h3>Files</h3><dl>${Object.entries(m.builds).map(([k, b]) => `<dt>${esc(t[k].label)}</dt><dd>${esc(t[k].firmware)} · ${b.size} bytes<br><span class="hash">sha256 ${b.sha256}</span> · <a href="${esc(b.file)}" download>Download</a></dd>`).join('')}</dl>
     <h3>About it</h3><dl><dt>Hooks</dt><dd>${m.hooks.map(esc).join(', ')}</dd><dt>On a unit</dt><dd>${esc(m.on_unit || '')}</dd>
       <dt>On your M8</dt><dd>${inst ? `${esc(inst.name)}, v${esc(inst.head.version)}, ${inst.on ? 'on' : 'off'}` : state.m8 ? 'not installed' : 'connect to see'}</dd>
       <dt>Source</dt><dd><a href="${esc(m.source)}" target="_blank" rel="noreferrer">${esc(m.source.replace('https://', ''))}</a></dd><dt>Licence</dt><dd>GPL-2.0-or-later</dd></dl>`;

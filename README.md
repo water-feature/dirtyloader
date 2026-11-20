@@ -11,7 +11,9 @@ It never redistributes Dirtywave's firmware. You bring the firmware file Dirtywa
 core to it on your own computer, in the browser or from the command line.
 
 Core 0.7 runs on the **M8 Headless 6.6.4A**, the **M8 Model:02 6.6.4A** (Dirtywave's current download) and the
-**Model:02 6.6.2A**. It has been run on a Headless (a Teensy 4.1) and a Model:02. The Model:01 isn't supported yet.
+**Model:02 6.6.2A**. The in-progress [Model:01 6.6.4A port](docs/MODEL01-664-PORT.md) uses a command-line
+firmware build, manual SD installation, and a text MOD LOADER. Track Silence works on Model:01 hardware.
+The [Model:01 hook list](docs/CORE-EVENTS.md#model01-664a) records the current coverage.
 **Read the [warning](#warning) first.**
 
 ## Get started: the mod shop
@@ -24,6 +26,7 @@ Core 0.7 runs on the **M8 Headless 6.6.4A**, the **M8 Model:02 6.6.4A** (Dirtywa
 3. **Theme** picks the M8's colours, live on the device.
 4. **Recover** restarts the M8 without mods, or puts Dirtywave's firmware back.
 
+For Model:01, follow the [command-line and SD instructions](docs/MODEL01-664-PORT.md#current-build-and-installation).
 How the shop works: [docs/SHOP.md](docs/SHOP.md).
 
 On the M8 itself: on a **Model:02**, all four directions at once (UP+DOWN+LEFT+RIGHT) open the **MOD LOADER**, a card
@@ -95,6 +98,8 @@ build it yourself from Dirtywave's file:
 python -m dirtyloader.core.build_model02  M8_V6_6_4A_MODEL02.bin out   # Model:02 (6.6.2A or 6.6.4A, by the file's sha256)
 python -m dirtyloader.core.build_headless M8_V6_6_4A_HEADLESS.hex out  # Headless
 ```
+
+For Model:01 6.6.4A, use the [Model:01 builder](docs/MODEL01-664-PORT.md#current-build-and-installation).
 
 Each writes the firmware with core in it, and an `sd/` folder with a mod to try. Flash it the usual way: copy the
 `.bin` to the M8's SD card and use SYSTEM SETTINGS > FIRMWARE UPDATE, or flash the `.hex` with TyUploader. The shop's
