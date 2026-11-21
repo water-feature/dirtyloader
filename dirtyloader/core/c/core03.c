@@ -232,10 +232,7 @@ static void restart_now(void)
  * /dirtyloader/guard holds SKIP once a boot with mods crashed; while it does, nothing is loaded. Anything else
  * (or no file) means load. Writing GOOD there (dirtyloader sd does) re-enables the mods. */
 #define GUARD_PATH "/dirtyloader/guard"
-#define G_SKIP 0x50494B53u   /* "SKIP" */
-#define G_GOOD 0x444F4F47u
-#define G_ARMD 0x444D5241u   /* obsolete startup marker from older builds */
-enum { SKIP_NONE, SKIP_CRASH, SKIP_GUARD, SKIP_HOST = 4 };
+#include "guard_policy.h"
 enum { GUARD_PENDING, GUARD_CLEARED, GUARD_WRITE_ERROR };
 static uint32_t read_guard(void)
 {
@@ -3155,25 +3152,22 @@ void core_load(void)
 #endif
     o = put(o, "\n");
 
-    int skip = SKIP_NONE;
     uint32_t guard = read_guard();
     int host_skip = safe_boot_asked();
+    enum guard_skip_reason skip = guard_skip_reason(guard, crashed() && had_mods, host_skip);
     zero(ram->crash, sizeof ram->crash);
     if (crashed())
         for (uint32_t i = 0; i < 8; i++) ram->crash[i] = fw_fault_info[i];
-    if (crashed() && had_mods) {
+    if (skip == SKIP_CRASH) {
         o = put(o, "crash guard: the last boot with mods crashed (pc ");
         o = put_hex(o, fw_fault_info[6]);
         o = put(o, "), so no mods were loaded.\n");
         write_file(GUARD_PATH, "SKIP", 4);
-        skip = SKIP_CRASH;
-    } else if (host_skip) {
+    } else if (skip == SKIP_HOST) {
         o = put(o, "safe boot: the host asked (python -m dirtyloader.unit safe), so no mods were loaded.\n");
         write_file(GUARD_PATH, "SKIP", 4);
-        skip = SKIP_HOST;
-    } else if (guard == G_SKIP) {
+    } else if (skip == SKIP_GUARD) {
         o = put(o, "crash guard: guard says SKIP, so no mods were loaded.\n");
-        skip = SKIP_GUARD;
     }
     if (crashed() && ram->sig == RAM_SIG && ram->fault_handled) {
         o = put(o, "ev_crash: the mods' handlers ran in the fault (pc ");
