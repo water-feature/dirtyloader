@@ -73,8 +73,8 @@ while `guard` says `SKIP`. The full-core USB tool clears it with
 `python -m dirtyloader.unit good`.
 
 On Model:01, Model:02, and Headless, the mod screen shows **SAFE MODE - MODS NOT LOADED** when the guard
-blocks loading. The mod list shows which mods are enabled for the next boot. Use **CLEAR SKIP** with RIGHT
-on Model:01 or PLAY on Model:02 and Headless. After the guard is cleared, press the same key again on
+blocks loading. The mod list shows which mods are enabled for the next boot. Press PLAY to **CLEAR SKIP**. After the guard
+is cleared, press PLAY again on
 **RESTART TO APPLY**. If clearing fails, write exactly four bytes `GOOD` to `dirtyloader/guard` on the SD card
 and restart. To recover after a freeze without a crash record, write `SKIP` to the same file before booting.
 
