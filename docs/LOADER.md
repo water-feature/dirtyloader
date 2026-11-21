@@ -20,7 +20,7 @@ for its firmware build, supported workflow, and hardware results.
 | transfer over USB (SysEx) | transfer over the m8c USB serial port (`ev_serial`) |
 | Mod Menu: list, on/off | SYSTEM SETTINGS > MODS (TELOS): list, on/off, apply and restart |
 | projects remember their mods | songs remember their mods (`<song>.mods`); LOAD SONG MODS? on load |
-| crash guard: skip mods after a crash | the same, from Teensyduino's crash record, and a 10 s hang guard |
+| crash guard: skip mods after a crash | the same, from Teensyduino's crash record |
 | core-dn1's Mod Menu, mod pages, project data, MIDI hooks | `dl/core.h` (core 0.4): pages, song data, files, MIDI in and out |
 
 ## What is where
@@ -72,22 +72,15 @@ mods, writes `SKIP` to `guard`, loads nothing, and says so in `status.txt` with 
 while `guard` says `SKIP`. The full-core USB tool clears it with
 `python -m dirtyloader.unit good`.
 
-**Hangs** (core 0.4), as TELOS does it: a boot that loads mods writes `ARMD` to `guard` first, and `ev_tick`
-writes `GOOD` once the boot has run 10 seconds. Mods load during boot.
-If the next boot finds `ARMD`, it writes `SKIP` and loads no mods.
-A hang, power-off, or ordinary restart within the first ten seconds
-can all leave `ARMD`. The full-core USB RESTART, API restart, and
-MODS page write `GOOD` before restarting.
+On Model:01, Model:02, and Headless, the mod screen shows **SAFE MODE - MODS NOT LOADED** when the guard
+blocks loading. The mod list shows which mods are enabled for the next boot. Use **CLEAR SKIP** with RIGHT
+on Model:01 or PLAY on Model:02 and Headless. After the guard is cleared, press the same key again on
+**RESTART TO APPLY**. If clearing fails, write exactly four bytes `GOOD` to `dirtyloader/guard` on the SD card
+and restart. To recover after a freeze without a crash record, write `SKIP` to the same file before booting.
 
-The MODS page's title says `SKIPPED: A CRASH`, `SKIPPED: NO 10 S RUN` or `SKIPPED` while the guard is set; its
-RESTART row writes `GOOD` and restarts, so the set gets another try. `core->last_crash` gives mods the crash
+The core accepts a leftover `ARMD` from older builds and loads the enabled mods. It no longer writes a
+startup marker or depends on an SD write after a timed startup window. `core->last_crash` gives mods the crash
 record the boot found.
-
-On Model:01, MOD LOADER's ON/OFF setting records what to load on the
-next boot. It does not show whether the guard blocked that load.
-If `dirtyloader/status.txt` reports `SKIP`, use USB DRIVE to write the
-four bytes `GOOD` to `dirtyloader/guard`. Ejecting the drive reboots
-the M8. Let that boot run ten seconds before rebooting again.
 
 **Safe boot** (core 0.5), TELOS's missing "skip key at power-on" for a unit without keys:
 

@@ -112,8 +112,13 @@ static void model01_draw(void *view)
 {
     for (int row = 0; row < FW_GRID_ROWS; row++) menu_row(row, "", '1');
     menu_row(MENU_TITLE_ROW, " MOD LOADER", '3');
-    menu_row(MENU_TITLE_ROW + 1, ram->page_n ? " UP/DN MOVE  EDIT TOGGLE" : " OPT BACK", '1');
-    if (ram->page_n) menu_row(MENU_TITLE_ROW + 2, " OPT BACK", '1');
+    if (ram->skipped) {
+        menu_row(MENU_TITLE_ROW + 1, " SAFE MODE - MODS NOT LOADED", '3');
+        menu_row(MENU_TITLE_ROW + 2, " UP/DN MOVE EDIT TOGGLE OPT BACK", '1');
+    } else {
+        menu_row(MENU_TITLE_ROW + 1, ram->page_n ? " UP/DN MOVE  EDIT TOGGLE" : " OPT BACK", '1');
+        if (ram->page_n) menu_row(MENU_TITLE_ROW + 2, " OPT BACK", '1');
+    }
     if (!ram->page_n) {
         const char *message = ram->last_action == MENU_NO_CARD ? " SD CARD NOT MOUNTED" :
                               ram->last_action == MENU_NO_FOLDER ? " CANNOT OPEN /DIRTYLOADER/MODS" :
@@ -130,7 +135,13 @@ static void model01_draw(void *view)
         *out = 0;
         menu_row(MENU_FIRST_ROW + (int)(i - first), line, '1');
     }
-    if (ram->last_action == MENU_ACTIVE_ERROR) menu_row(MENU_STATUS_ROW, " CANNOT READ ACTIVE LIST", '1');
+    if (ram->skipped) {
+        const char *help = ram->guard_recovery == GUARD_CLEARED ? " RIGHT RESTART TO APPLY"
+                         : ram->guard_recovery == GUARD_WRITE_ERROR ? " SD: SET DIRTYLOADER/GUARD TO GOOD"
+                         : " RIGHT CLEAR SKIP";
+        menu_row(MENU_STATUS_ROW, help, '3');
+    }
+    else if (ram->last_action == MENU_ACTIVE_ERROR) menu_row(MENU_STATUS_ROW, " CANNOT READ ACTIVE LIST", '1');
     else if (ram->last_action == MENU_SAVE_ERROR) menu_row(MENU_STATUS_ROW, " COULD NOT SAVE ACTIVE LIST", '1');
     else if (ram->page_n) menu_row(MENU_STATUS_ROW, " TAKES EFFECT ON NEXT REBOOT", '1');
 }
@@ -184,7 +195,7 @@ void model01_menu_toast(void *toast)
 
 int core_key(uint8_t *ui, int action)
 {
-    enum { EDIT = 0x01, OPT = 0x02, DOWN = 0x20, UP = 0x40, OPEN = 0xE4 };
+    enum { EDIT = 0x01, OPT = 0x02, RIGHT = 0x04, DOWN = 0x20, UP = 0x40, OPEN = 0xE4 };
     if (fw_views[FW_VIEW_FREE] != &ram->page_view) return 0;
     int in_menu = ui[FW_UI_VIEW] == FW_VIEW_FREE;
     if (!in_menu) {
@@ -193,6 +204,8 @@ int core_key(uint8_t *ui, int action)
         fw_set_view(ui, FW_VIEW_FREE);
     } else if (action == OPT || action == OPEN) {
         fw_set_view(ui, (int)ram->prev_view);
+    } else if (action == RIGHT && ram->skipped) {
+        guard_recover();
     } else if (action == UP && ram->page_sel) {
         ram->page_sel--;
     } else if (action == DOWN && ram->page_sel + 1 < ram->page_n) {
