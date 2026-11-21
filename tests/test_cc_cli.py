@@ -1,4 +1,4 @@
-"""The mod build command (python -m dirtyloader.cc): it supports the shop's targets, info reads the shop's files, and,
+"""The mod build command (python -m dirtyloader.cc): its targets match the shop's, info reads the shop's files, and,
 where the ARM compiler is installed (not in CI), examples/hello builds for every target."""
 import contextlib
 import io
@@ -24,9 +24,9 @@ class TestCcCli(unittest.TestCase):
     def test_targets_match_the_shop(self):
         with open(os.path.join(SHOP, "meta.json"), encoding="utf-8") as f:
             shop = json.load(f)["targets"]
-        self.assertLessEqual(set(shop), set(cc.TARGETS))
-        for k, t in shop.items():
-            self.assertEqual(t, cc.TARGETS[k], k)
+        self.assertEqual(set(shop), set(cc.TARGETS))
+        for k, t in cc.TARGETS.items():
+            self.assertEqual(t, shop[k], k)
 
     def test_targets_command(self):
         code, out, _ = run("targets")
@@ -45,9 +45,9 @@ class TestCcCli(unittest.TestCase):
 
     def test_info_is_not_a_hook(self):
         """DL_INFO's entry is read as the mod's author and description, not counted as a subscription."""
-        with open(os.path.join(SHOP, "meta.json"), encoding="utf-8") as f:
-            targets = json.load(f)["targets"]
-        for t in targets:
+        for t in cc.TARGETS:
+            if "events" in cc.TARGETS[t]:
+                continue
             with open(os.path.join(SHOP, "mods", t, "chaos-control.m8x"), "rb") as f:
                 p = cc.parse_m8x(f.read())
             self.assertEqual(p["info"]["author"], "dirtyloader", t)

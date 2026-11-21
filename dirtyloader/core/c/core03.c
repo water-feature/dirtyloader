@@ -33,6 +33,11 @@
 #define MAX_DATA     8
 #define MIDI_Q       8
 #define MAX_SETTINGS 24
+#ifdef CORE_SD_ONLY
+/* The boot-only core reserves no engine-specific capacity. */
+#define FW_ENGINES 1
+#define FW_MOD_DESTS_MAX 1
+#endif
 #ifdef FW_MODULATOR_FIRST
 #define DEST_EXT 1                     /* the header has what extended destinations need (core 0.6) */
 #define DEST_EXTRA_MAX 16              /* destinations a mod may add to an engine: up to 31 in all */
@@ -78,6 +83,9 @@ struct core_ram {
     uint32_t midi_q[MIDI_Q];
     uint32_t midi_head, midi_tail;
     uint32_t armed, armed_at;      /* the guard says ARMD until the boot has run ARMED_MS */
+#ifdef CORE_GUARD_DIAGNOSTICS
+    uint32_t guard_ticks, guard_attempted;
+#endif
     uint32_t crash[8];             /* Teensyduino's crash record as the boot found it; [0] 0: none */
     uint32_t fault_orig, in_fault, fault_handled, fault_pc;   /* ev_crash; the last two survive the reset */
     uint32_t dest_name_orig[FW_ENGINES], dest_count_orig[FW_ENGINES], dest_stock[FW_ENGINES], dest_n[FW_ENGINES];
@@ -184,6 +192,7 @@ static int f_write(struct fw_file *f, const void *buf, uint32_t n)
     return -1;
 }
 static int read_exact(struct fw_file *f, void *buf, uint32_t n) { return f_read(f, buf, n) == (int)n; }
+#ifndef CORE_SD_ONLY
 static int f_seek(struct fw_file *f, uint32_t pos)
 {
     if (f->fat) return fw_fat_seek(f->fat, pos);
@@ -199,6 +208,8 @@ static int f_remove(const char *path)
     return ok;
 }
 
+#endif
+
 static int write_file(const char *path, const char *text, uint32_t n)
 {
     struct fw_file f;
@@ -208,11 +219,14 @@ static int write_file(const char *path, const char *text, uint32_t n)
     return ok;
 }
 
+#ifndef CORE_SD_ONLY
 static void restart_now(void)
 {
     *(volatile uint32_t *)0xE000ED0Cu = 0x05FA0004u;  /* SCB_AIRCR: SYSRESETREQ */
     for (;;) { }
 }
+
+#endif
 
 /* ---- the crash guard ------------------------------------------------------------------------------------------
  * /dirtyloader/guard holds SKIP once a boot with mods crashed; while it does, nothing is loaded. Anything else
@@ -409,6 +423,137 @@ done:
 
 
 
+/* Dispatch a three-argument event from a firmware wrapper. */
+#ifndef CORE_DISPATCH
+#error "CORE_DISPATCH comes from the builder"
+#endif
+#define TAKE 0x10000u
+static int fire3(uint32_t word, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    register uint32_t r0 __asm__("r0") = a0;
+    register uint32_t r1 __asm__("r1") = a1;
+    register uint32_t r2 __asm__("r2") = a2;
+    register uint32_t ip __asm__("ip") = word;
+    register uint32_t fn __asm__("r3") = CORE_DISPATCH;
+    __asm volatile("blx r3" : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(ip), "+r"(fn) : : "lr", "memory", "cc");
+    return (int)r0;
+}
+
+static uint32_t has_subs(uint16_t ev)
+{
+    for (uint32_t i = 0; i < ram->count; i++) if (ram->table[i].event == ev) return 1;
+    return 0;
+}
+static void wrap_slot(uint32_t slot, uint32_t *orig, uint32_t fn)
+{
+    volatile uint32_t *s = (volatile uint32_t *)slot;
+    if (*s != (fn | 1)) { *orig = *s; *s = fn | 1; }
+}
+
+/* ev_audio_out: the tap's update() (vtable slot 0, in RAM) gets the master output's two blocks first: a handler
+   processes them in place (insert: USB, the recorder and I2S all get it) or writes them (exclusive). A silent
+   output has no blocks: with handlers, core allocates zeroed ones so they can write. */
+#define EV_AUDIO_OUT_W (0x0032u | TAKE)
+static void core_tap(void *obj)
+{
+    uint8_t **q = *(uint8_t ***)((uint8_t *)obj + 0x20);
+    if (ram->audio_subs && q) {
+        for (int i = 0; i < 2; i++)
+            if (!q[i] && (q[i] = fw_audio_alloc()) != 0) zero(q[i] + 4, FW_AUDIO_FRAMES * 4);
+        if (q[0] && q[1]) fire3(EV_AUDIO_OUT_W, (uint32_t)(q[0] + 4), (uint32_t)(q[1] + 4), FW_AUDIO_FRAMES);
+    }
+    ((void (*)(void *))ram->tap_orig)(obj);
+}
+
+/* The track's main strip and sends share its rendered audio blocks. */
+#define EV_TRACK_AUDIO_W 0x0033u
+typedef void (*update_fn)(void *);
+static void core_track(void *obj)
+{
+    ((update_fn)ram->track_orig)(obj);
+    if (!ram->track_subs) return;
+    uint8_t *strip = FW_TRACK_STRIP(obj);
+    uint8_t **q = *(uint8_t ***)(strip + 0x20);
+    uint32_t inputs = strip[0x18];                  /* the track sends on ports 0/1, and 2/3 while it crossfades */
+    for (uint32_t p = 0; q && p + 1 < inputs && p < 4; p += 2)
+        if (q[p] && q[p + 1])
+            fire3(EV_TRACK_AUDIO_W, (uint32_t)(q[p] + 4), (uint32_t)(q[p + 1] + 4), ((uint8_t *)obj)[0x3D]);
+}
+
+#ifdef CORE_SD_ONLY
+#ifdef CORE_GUARD_DIAGNOSTICS
+static char *guard_trace_state(char *out, uint32_t now)
+{
+    out = put_dec(put(out, "ticks "), ram->guard_ticks);
+    out = put_dec(put(out, "\narmed "), ram->armed);
+    out = put_dec(put(out, "\nbooted "), ram->booted);
+    out = put_dec(put(out, "\nstarted_ms "), ram->armed_at);
+    out = put_dec(put(out, "\nnow_ms "), now);
+    return put_dec(put(out, "\nelapsed_ms "), now - ram->armed_at);
+}
+
+static int guard_trace_write(uint32_t now)
+{
+    struct fw_file f;
+    int opened = f_open(&f, GUARD_PATH, FW_O_RDWR | FW_O_CREAT | FW_O_TRUNC);
+    int written = -1, closed = -1;
+    if (opened) {
+        written = f_write(&f, "GOOD", 4);
+        closed = fw_file_close(&f);
+    }
+    char status[224];
+    char *out = guard_trace_state(status, now);
+    out = put_hex(put(out, "\nopen "), (uint32_t)opened);
+    out = put_hex(put(out, "\nwrite "), (uint32_t)written);
+    out = put_hex(put(out, "\nclose "), (uint32_t)closed);
+    out = put_hex(put(out, "\nreadback "), read_guard());
+    out = put(out, "\n");
+    write_file("/dirtyloader/guard-write.txt", status, (uint32_t)(out - status));
+    return written == 4;
+}
+#endif
+
+void core_tick(void)
+{
+    uint32_t now = fw_millis;
+#ifdef CORE_GUARD_DIAGNOSTICS
+    if (++ram->guard_ticks == 16u || ram->guard_ticks == 8192u) {
+        char status[160];
+        char *out = put(guard_trace_state(status, now), "\n");
+        const char *path;
+        if (ram->armed)
+            path = ram->guard_ticks == 16u ? "/dirtyloader/armed-start.txt" : "/dirtyloader/armed-later.txt";
+        else
+            path = ram->guard_ticks == 16u ? "/dirtyloader/guard-start.txt" : "/dirtyloader/guard-later.txt";
+        write_file(path, status, (uint32_t)(out - status));
+    }
+#endif
+    if (ram->armed && ram->booted && now - ram->armed_at >= ARMED_MS && FW_SD_MOUNTED()) {
+        int ok;
+#ifdef CORE_GUARD_DIAGNOSTICS
+        if (!ram->guard_attempted) {
+            ram->guard_attempted = 1;
+            ok = guard_trace_write(now);
+        } else
+#endif
+            ok = write_file(GUARD_PATH, "GOOD", 4);
+        if (ok) ram->armed = 0;
+        else ram->armed_at += 1000;
+    }
+}
+#ifdef CORE_MODEL01_MENU
+#include "model01_menu.h"
+#endif
+static int api_file_write(const char *path, const void *buf, uint32_t n);
+
+static const struct dl_core api = {
+    .magic = DL_CORE_SD_MAGIC,
+    .version = DL_CORE_VERSION,
+    .size = sizeof(struct dl_core),
+    .file_write = api_file_write,
+};
+#define BOOT_API (&api)
+#else
 /* ---- entry points ------------------------------------------------------------------------------------------ */
 /* ---- mods over USB (docs/LOADER.md, "Transfer") ------------------------------------------------------------
  * Requests travel in the m8c serial stream: 0xD1, cmd, seq, len (u16 LE), payload[len], sum8 (cmd..payload).
@@ -1457,10 +1602,6 @@ void core_tick(void)
 /* ---- events core raises from C --------------------------------------------------------------------------------
  * fire() calls the dispatcher (core 0.2's, at the start of the hook bus, CORE_DISPATCH) as a site stub does:
  * ip = event | TAKE, arguments in r0-r3; it returns the taking handler's result, or 0. */
-#ifndef CORE_DISPATCH
-#error "CORE_DISPATCH comes from the builder"
-#endif
-#define TAKE 0x10000u
 static int fire(uint32_t word, uint32_t a0, uint32_t a1)
 {
     register uint32_t r0 __asm__("r0") = a0;
@@ -1470,50 +1611,9 @@ static int fire(uint32_t word, uint32_t a0, uint32_t a1)
     __asm volatile("blx r3" : "+r"(r0), "+r"(r1), "+r"(ip), "+r"(fn) : : "r2", "lr", "memory", "cc");
     return (int)r0;
 }
-static int fire3(uint32_t word, uint32_t a0, uint32_t a1, uint32_t a2)
-{
-    register uint32_t r0 __asm__("r0") = a0;
-    register uint32_t r1 __asm__("r1") = a1;
-    register uint32_t r2 __asm__("r2") = a2;
-    register uint32_t ip __asm__("ip") = word;
-    register uint32_t fn __asm__("r3") = CORE_DISPATCH;
-    __asm volatile("blx r3" : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(ip), "+r"(fn) : : "lr", "memory", "cc");
-    return (int)r0;
-}
-
-/* ev_audio_out: the tap's update() (vtable slot 0, in RAM) gets the master output's two blocks first: a handler
-   processes them in place (insert: USB, the recorder and I2S all get it) or writes them (exclusive). A silent
-   output has no blocks: with handlers, core allocates zeroed ones so they can write. */
-#define EV_AUDIO_OUT_W (0x0032u | TAKE)
-static void core_tap(void *obj)
-{
-    uint8_t **q = *(uint8_t ***)((uint8_t *)obj + 0x20);
-    if (ram->audio_subs && q) {
-        for (int i = 0; i < 2; i++)
-            if (!q[i] && (q[i] = fw_audio_alloc()) != 0) zero(q[i] + 4, FW_AUDIO_FRAMES * 4);
-        if (q[0] && q[1]) fire3(EV_AUDIO_OUT_W, (uint32_t)(q[0] + 4), (uint32_t)(q[1] + 4), FW_AUDIO_FRAMES);
-    }
-    ((void (*)(void *))ram->tap_orig)(obj);
-}
-
-/* ev_track_audio, ev_fx_audio, ev_render_params: the same idea at other objects of the graph (fw.h). A track's
-   blocks are read after its update, from its main strip's input queue: the same blocks reach its three sends, so
-   a change in place is heard everywhere. A send effect's input is handed over before the effect runs. */
-#define EV_TRACK_AUDIO_W 0x0033u
+/* Other objects in the graph (fw.h). A send effect's input is handed over before the effect runs. */
 #define EV_FX_AUDIO_W    (0x0034u | TAKE)
 #define EV_PARAMS_W      0x0035u
-typedef void (*update_fn)(void *);
-static void core_track(void *obj)
-{
-    ((update_fn)ram->track_orig)(obj);
-    if (!ram->track_subs) return;
-    uint8_t *strip = FW_TRACK_STRIP(obj);
-    uint8_t **q = *(uint8_t ***)(strip + 0x20);
-    uint32_t inputs = strip[0x18];                  /* the track sends on ports 0/1, and 2/3 while it crossfades */
-    for (uint32_t p = 0; q && p + 1 < inputs && p < 4; p += 2)
-        if (q[p] && q[p + 1])
-            fire3(EV_TRACK_AUDIO_W, (uint32_t)(q[p] + 4), (uint32_t)(q[p + 1] + 4), ((uint8_t *)obj)[0x3D]);
-}
 /* A taken stereo effect (MFX, reverb) does not run: the handler's blocks go to its two outputs in its place, and
    its input queue is released and cleared as its own update would. The delay (mono in) is not replaceable. */
 static int fx_in(void *obj, uint32_t stage, int stereo)
@@ -1569,17 +1669,6 @@ static void core_phrase_cell(void *view, uint32_t a1, uint32_t a2, uint32_t a3)
 {
     ((void (*)(void *, uint32_t, uint32_t, uint32_t))ram->cell_orig)(view, a1, a2, a3);   /* ev_step_edit's site */
     snap_take(view);
-}
-
-static uint32_t has_subs(uint16_t ev)
-{
-    for (uint32_t i = 0; i < ram->count; i++) if (ram->table[i].event == ev) return 1;
-    return 0;
-}
-static void wrap_slot(uint32_t slot, uint32_t *orig, uint32_t fn)
-{
-    volatile uint32_t *s = (volatile uint32_t *)slot;
-    if (*s != (fn | 1)) { *orig = *s; *s = fn | 1; }
 }
 
 static int fire4(uint32_t word, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
@@ -2665,10 +2754,14 @@ static int api_file_read(const char *path, uint32_t off, void *buf, uint32_t n)
     fw_file_close(&f);
     return k;
 }
+#endif
+
 static int api_file_write(const char *path, const void *buf, uint32_t n)
 {
     return write_file(path, buf, n) ? (int)n : -1;
 }
+
+#ifndef CORE_SD_ONLY
 static void api_midi_receive(uint32_t packet)
 {
     if (ram->midi_head - ram->midi_tail < MIDI_Q) ram->midi_q[ram->midi_head++ % MIDI_Q] = packet;
@@ -2986,6 +3079,9 @@ __attribute__((naked)) static void core_fault(void)
         "bx     r0              \n");
 }
 
+#define BOOT_API (&api)
+#endif
+
 static void itcm_writable(void)
 {
     volatile uint32_t *rnr = (uint32_t *)0xE000ED98u, *rasr = (uint32_t *)0xE000EDA0u;
@@ -3018,7 +3114,7 @@ void core_early(void)
     write_veneers();
     ram->magic = 0;
     ram->loaded = 0;
-    ram->api = &api;
+    ram->api = BOOT_API;
 }
 
 
@@ -3201,6 +3297,19 @@ void core_load(void)
     o = put_dec(o, ram->count);
     o = put(o, "\n");
     write_file("/dirtyloader/status.txt", status, (uint32_t)(o - status));
+#ifdef CORE_GUARD_DIAGNOSTICS
+    /* A later SKIP boot must not overwrite the reason the guard tripped. */
+    if (skip == SKIP_CRASH || skip == SKIP_HANG || skip == SKIP_HOST) {
+        char fault[160];
+        char *end = put_dec(put(fault, "reason "), (uint32_t)skip);
+        end = put_hex(put(end, "\nprevious_guard "), guard);
+        end = put_hex(put(end, "\ncfsr "), ram->crash[2]);
+        end = put_hex(put(end, "\nhfsr "), ram->crash[3]);
+        end = put_hex(put(end, "\npc "), ram->crash[6]);
+        end = put(end, "\n");
+        write_file("/dirtyloader/guard-last-skip.txt", fault, (uint32_t)(end - fault));
+    }
+#endif
 }
 
 void core_boot(void)
@@ -3210,6 +3319,7 @@ void core_boot(void)
         ram->nmods = 0;
         flash_hooks(orders);
     }
+#ifndef CORE_SD_ONLY
 #if FW_HAS_VIEW_TABLE
     if (!fw_views[FW_VIEW_FREE]) {                  /* the MODS page takes the firmware's free view slot */
         zero(&ram->page_view, sizeof ram->page_view);
@@ -3225,6 +3335,11 @@ void core_boot(void)
         __asm volatile("dsb" ::: "memory");
         FW_VECTORS[FW_AUDIO_VECTOR] = (uint32_t)core_audio | 1;
     }
+#endif
+#ifdef CORE_SD_ONLY
+    /* Leave the Model:01 tap alone unless a loaded mod uses it. */
+    if (has_subs(EV_AUDIO_OUT_W & 0xFFFFu))
+#endif
     {                                               /* ev_audio_out */
         volatile uint32_t *vt = *(volatile uint32_t **)(FW_AUDIO_TAP_OBJ);
         ram->audio_subs = 0;
@@ -3234,13 +3349,16 @@ void core_boot(void)
             vt[0] = (uint32_t)core_tap | 1;
         }
     }
-#if defined(FW_ATTR_PAL_LIT) && defined(fw_sys)
+#if !defined(CORE_SD_ONLY) && defined(FW_ATTR_PAL_LIT) && defined(fw_sys)
     xt_boot();                                      /* the extended theme: its palette and its ev_draw handler */
 #endif
-    ram->track_subs = has_subs(EV_TRACK_AUDIO_W);   /* the graph's objects: wrapped only for a subscriber */
+    ram->track_subs = has_subs(EV_TRACK_AUDIO_W);
+#ifndef CORE_SD_ONLY
     ram->fx_subs = has_subs(EV_FX_AUDIO_W & 0xFFFFu);
     ram->params_subs = has_subs(EV_PARAMS_W);
+#endif
     if (ram->track_subs) wrap_slot(FW_SLOT_TRACK, &ram->track_orig, (uint32_t)core_track);
+#ifndef CORE_SD_ONLY
     if (ram->fx_subs) {
         wrap_slot(FW_SLOT_MFX, &ram->mfx_orig, (uint32_t)core_mfx);
         wrap_slot(FW_SLOT_DELAY, &ram->delay_orig, (uint32_t)core_delay);
@@ -3261,9 +3379,16 @@ void core_boot(void)
         ram->sysex_orig = fw_sysex_handler;
         fw_sysex_handler = (uint32_t)core_sysex;
     }
+#endif
+#ifdef CORE_MODEL01_MENU
+    model01_install_menu();
+#endif
     ram->booted = 1;                                /* song loads from here on are the user's */
     ram->armed_at = fw_millis;
-    ram->api = &api;
+#ifdef CORE_GUARD_DIAGNOSTICS
+    ram->guard_ticks = ram->guard_attempted = 0;
+#endif
+    ram->api = BOOT_API;
     __asm volatile("dsb\n isb" ::: "memory");
     ram->magic = RAM_MAGIC;
 }

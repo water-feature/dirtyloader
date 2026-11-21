@@ -6,6 +6,7 @@
 
 - **[The mod shop](https://irpina.github.io/dirtyloader/shop/)**: put core on your M8 (Get started), install mods,
   pick the theme, recover. How it works: [SHOP.md](SHOP.md).
+- **[Model:01 6.6.4A](MODEL01-664-PORT.md)**: command-line firmware build, SD installation, and hardware results.
 
 ## Writing mods
 

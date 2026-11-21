@@ -88,6 +88,7 @@ export function parseM8x(blob) {
 export function describeFw(fw) {
   const model = fw >>> 24, v = fw & 0xFFFFFF;
   const ver = `${(v >> 16) & 0xFF}.${(v >> 8) & 0xFF}.${v & 0xFF}`;
+  if (model === 1) return { target: v === 0x060604 ? 'm8-model01' : null, label: 'M8 Model:01', version: ver + 'A' };
   if (model === 2) return { target: v === 0x060604 ? 'm8-model02-664' : 'm8-model02', label: 'M8 Model:02', version: ver + 'A' };
   if (model === 0) return { target: 'm8-headless', label: 'M8 Headless', version: ver + 'A' };
   return { target: null, label: `M8 (model ${model})`, version: ver };

@@ -21,7 +21,7 @@ await test('SLIP unescapes across chunks', () => {
 
 const catalog = JSON.parse(readFileSync(new URL('catalog.json', SHOP)));
 await test('every catalog file is the one it lists, for the right firmware', () => {
-  const fws = { 'm8-model02': 0x02060602, 'm8-model02-664': 0x02060604, 'm8-headless': 0x00060604 };
+  const fws = { 'm8-model02': 0x02060602, 'm8-model02-664': 0x02060604, 'm8-headless': 0x00060604, 'm8-model01': 0x01060604 };
   for (const m of catalog.mods) for (const [t, b] of Object.entries(m.builds)) {
     const data = readFileSync(new URL(b.file, SHOP));
     assert.equal(createHash('sha256').update(data).digest('hex'), b.sha256, b.file);
@@ -32,10 +32,12 @@ await test('every catalog file is the one it lists, for the right firmware', () 
 await test('each firmware id names its shop target', () => {
   assert.equal(describeFw(0x02060602).target, 'm8-model02'); assert.equal(describeFw(0x02060604).target, 'm8-model02-664');
   assert.equal(describeFw(0x00060604).target, 'm8-headless');
-  for (const t of ['m8-model02', 'm8-model02-664', 'm8-headless']) assert.ok(catalog.targets[t], t);
+  assert.equal(describeFw(0x01060604).target, 'm8-model01');
+  assert.equal(describeFw(0x01060603).target, null);
+  for (const t of ['m8-model02', 'm8-model02-664', 'm8-headless', 'm8-model01']) assert.ok(catalog.targets[t], t);
 });
 await test('parseM8x refuses a damaged file', () => {
-  const d = new Uint8Array(readFileSync(new URL(catalog.mods[0].builds['m8-model02'].file, SHOP)));
+  const d = new Uint8Array(readFileSync(new URL(catalog.mods.find(m => m.id === 'chaos-control').builds['m8-model02'].file, SHOP)));
   d[100] ^= 0xFF;
   assert.throws(() => parseM8x(d), /checksum/);
 });

@@ -7,8 +7,8 @@ and sets the M8's theme. It is published with the rest of `site/` (GitHub Pages,
 ## What it does
 
 - **Mod Shop** (`#shop`): every mod in `catalog.json` as a card on a shelf per category (Performance, Modulation,
-  Effects, Tools; Developer behind "Show developer mods"). The sidebar's categories, the model chips (All, Model:02,
-  Headless), the search and Sort filter them. A card's cover is line art for its motif, in its category's colour.
+  Effects, Tools; Developer behind "Show developer mods"). The sidebar's categories, the model filter, the search
+  and Sort filter them. For Model:01, download the matching mod and copy it to `dirtyloader/mods/` on the card. A card's cover is line art for its motif, in its category's colour.
   **+ Install** puts the build for your M8's firmware on its card and switches it on; **✓ Installed** goes to it on
   the next page; **Update to x.y.z** replaces an older version. **Details** shows the summary, the keys, each build's
   size and sha256, the hooks it uses, and what was checked on a unit.
@@ -38,7 +38,8 @@ and sets the M8's theme. It is published with the rest of `site/` (GitHub Pages,
 
 - **Get started** (`#start`): how to use dirtyloader, and putting core on the M8, all in the tab.
   1. Which M8: Model:02 6.6.4A, Model:02 6.6.2A or Headless 6.6.4A; the connected M8 picks it (core's firmware id says
-     which Model:02 build, `m8.js describeFw`). Model:01: not yet.
+     which Model:02 build, `m8.js describeFw`).
+     Model:01 uses the [command-line firmware build and SD setup](MODEL01-664-PORT.md#current-build-and-installation).
   2. Dirtywave's firmware, with a link to it (the Model:02's 6.6.4A is Dirtywave's current download, `M8Firmware.zip`,
      until they release a newer one; 6.6.2A is in their archive). Drop the `.bin`, the `.hex`, or the `.zip` as
      downloaded: it's recognised by its sha256 (`firmware.js identify`, reading the zip with `DecompressionStream`).
@@ -86,8 +87,9 @@ your saved themes, the model filter and the developer switch.
 ## The catalog
 
 `site/shop/meta.json` is edited by hand: each mod's sources, category, cover motif, title, summary, details, keys,
-and what was checked on a unit. `python site/shop/make_shop.py` (needs the ARM compiler) builds every mod for each
-target (Model:02 6.6.2A and 6.6.4A with `M8_MODEL02` and that build's header, Headless 6.6.4A) into
+and what was checked on a unit. `python site/shop/make_shop.py` needs the ARM compiler. By default it builds
+a catalog entry for both Model:02 firmware versions and Headless. An entry with an explicit `targets` list can
+add Model:01 or restrict the builds to selected targets. It writes the outputs to
 `site/shop/mods/<target>/<id>.m8x`, checks each
 with `cc.parse_m8x`, and writes `catalog.json` (sizes, sha256, versions, the hooks by name) and `font.js` (core's
 font, from `dl/pixui.h`). Commit all three: CI has no ARM compiler. A `.m8x` holds only the mod's own code, no

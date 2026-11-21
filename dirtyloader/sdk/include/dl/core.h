@@ -17,9 +17,11 @@
 #ifndef DIRTYLOADER_DL_CORE_H
 #define DIRTYLOADER_DL_CORE_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define DL_CORE_MAGIC   0x34434C44u      /* "DLC4" */
+#define DL_CORE_SD_MAGIC 0x53434C44u     /* "DLCS": SD-only core */
 #define DL_CORE_VERSION 0x00000600u      /* 0.6: mod_dest_of; mod_dest_add past 16 */
 
 /* A screen of a mod's own (core-dn1's Mod Menu entry and mod page in one). Core shows it in the firmware's free
@@ -117,12 +119,29 @@ struct dl_core {
 #define DL_MIDI_D2(p)     ((uint8_t)((p) >> 24))
 
 #ifdef DL_CORE_PTR
-static inline const struct dl_core *dl_core(void)
+static inline const struct dl_core *dl_core_table(void)
 {
     const struct dl_core *c = *(const struct dl_core *const volatile *)DL_CORE_PTR;
     uint32_t a = (uint32_t)c;
     if (a < 0x60000000u || a >= 0x60800000u || (a & 3)) return 0;   /* core's API lives in its flash */
-    return c->magic == DL_CORE_MAGIC ? c : 0;
+    return c;
+}
+
+static inline const struct dl_core *dl_core(void)
+{
+    const struct dl_core *c = dl_core_table();
+    return c && c->magic == DL_CORE_MAGIC ? c : 0;
+}
+
+/* Write from the UI thread. Also available on the SD-only core.
+ * Returns bytes written, or -1 if unavailable or the write failed. */
+static inline int dl_core_file_write(const char *path, const void *buf, uint32_t n)
+{
+    const struct dl_core *c = dl_core_table();
+    if (!c || (c->magic != DL_CORE_MAGIC && c->magic != DL_CORE_SD_MAGIC) ||
+        c->size < offsetof(struct dl_core, file_write) + sizeof(c->file_write) || !c->file_write)
+        return -1;
+    return c->file_write(path, buf, n);
 }
 #endif
 
