@@ -114,7 +114,9 @@ static void model01_draw(void *view)
     menu_row(MENU_TITLE_ROW, " MOD LOADER", '3');
     if (ram->skipped) {
         menu_row(MENU_TITLE_ROW + 1, " SAFE MODE - MODS NOT LOADED", '3');
-        menu_row(MENU_TITLE_ROW + 2, " UP/DN MOVE EDIT TOGGLE OPT BACK", '1');
+        menu_row(MENU_TITLE_ROW + 2, ram->guard_recovery == GUARD_CLEARED
+                 ? " EDIT TOGGLE PLAY REBOOT OPT BACK"
+                 : " UP/DN MOVE EDIT TOGGLE OPT BACK", '1');
     } else {
         menu_row(MENU_TITLE_ROW + 1, ram->page_n ? " UP/DN MOVE  EDIT TOGGLE" : " OPT BACK", '1');
         if (ram->page_n) menu_row(MENU_TITLE_ROW + 2, " OPT BACK", '1');
@@ -136,9 +138,9 @@ static void model01_draw(void *view)
         menu_row(MENU_FIRST_ROW + (int)(i - first), line, '1');
     }
     if (ram->skipped) {
-        const char *help = ram->guard_recovery == GUARD_CLEARED ? " PLAY RESTART TO APPLY"
+        const char *help = ram->guard_recovery == GUARD_CLEARED ? " REBOOT TO RE-ENABLE MODS"
                          : ram->guard_recovery == GUARD_WRITE_ERROR ? " SD: SET DIRTYLOADER/GUARD TO GOOD"
-                         : " PLAY CLEAR SKIP";
+                         : " PRESS PLAY TO EXIT SAFE MODE";
         menu_row(MENU_STATUS_ROW, help, '3');
     }
     else if (ram->last_action == MENU_ACTIVE_ERROR) menu_row(MENU_STATUS_ROW, " CANNOT READ ACTIVE LIST", '1');
