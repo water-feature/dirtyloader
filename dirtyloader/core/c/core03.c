@@ -73,7 +73,7 @@ struct core_ram {
     uint32_t skipped;              /* the crash guard skipped the mods this boot */
     char song[128];
     struct { char name[NAME_MAX]; } want[MAX_MODS];
-    /* core 0.4: mods' pages and song data, MIDI played in by mods, the hang guard, the crash the boot found */
+    /* core 0.4: mods' pages and song data, MIDI played in by mods, the crash the boot found */
     const struct dl_page *pages[MAX_PAGES];
     uint32_t npages;
     const struct dl_page *cur_page;
@@ -82,9 +82,9 @@ struct core_ram {
     uint32_t ndata, data_done;
     uint32_t midi_q[MIDI_Q];
     uint32_t midi_head, midi_tail;
-    uint32_t armed, armed_at;      /* the guard says ARMD until the boot has run ARMED_MS */
+    uint32_t guard_recovery, reserved_guard;   /* keep retained crash fields at the same offsets */
 #ifdef CORE_GUARD_DIAGNOSTICS
-    uint32_t guard_ticks, guard_attempted;
+    uint32_t reserved_guard_diagnostics[2];
 #endif
     uint32_t crash[8];             /* Teensyduino's crash record as the boot found it; [0] 0: none */
     uint32_t fault_orig, in_fault, fault_handled, fault_pc;   /* ev_crash; the last two survive the reset */
@@ -232,10 +232,8 @@ static void restart_now(void)
  * /dirtyloader/guard holds SKIP once a boot with mods crashed; while it does, nothing is loaded. Anything else
  * (or no file) means load. Writing GOOD there (dirtyloader sd does) re-enables the mods. */
 #define GUARD_PATH "/dirtyloader/guard"
-#define G_SKIP 0x50494B53u   /* "SKIP" */
-#define G_ARMD 0x444D5241u   /* "ARMD": a boot with mods has not run ARMED_MS yet (core_tick writes GOOD after) */
-#define ARMED_MS 10000u
-enum { SKIP_NONE, SKIP_CRASH, SKIP_GUARD, SKIP_HANG, SKIP_HOST };
+#include "guard_policy.h"
+enum { GUARD_PENDING, GUARD_CLEARED, GUARD_WRITE_ERROR };
 static uint32_t read_guard(void)
 {
     struct fw_file f;
@@ -246,6 +244,17 @@ static uint32_t read_guard(void)
     }
     return w;
 }
+
+#if !defined(CORE_SD_ONLY) || defined(CORE_MODEL01_MENU)
+static void guard_recover(void)
+{
+    if (ram->guard_recovery == GUARD_CLEARED) return;
+    ram->guard_recovery =
+        FW_SD_MOUNTED() && write_file(GUARD_PATH, "GOOD", 4) && read_guard() == G_GOOD
+        ? GUARD_CLEARED : GUARD_WRITE_ERROR;
+}
+#endif
+
 
 /* Teensyduino's fault handler leaves a record in RAM (len, ipsr, cfsr, hfsr, mmfar, bfar, pc, xpsr, ...) and reboots. */
 static int crashed(void)     /* len is 11 (words) in this build, 44 (bytes) in some Teensyduino versions */
@@ -481,66 +490,7 @@ static void core_track(void *obj)
 }
 
 #ifdef CORE_SD_ONLY
-#ifdef CORE_GUARD_DIAGNOSTICS
-static char *guard_trace_state(char *out, uint32_t now)
-{
-    out = put_dec(put(out, "ticks "), ram->guard_ticks);
-    out = put_dec(put(out, "\narmed "), ram->armed);
-    out = put_dec(put(out, "\nbooted "), ram->booted);
-    out = put_dec(put(out, "\nstarted_ms "), ram->armed_at);
-    out = put_dec(put(out, "\nnow_ms "), now);
-    return put_dec(put(out, "\nelapsed_ms "), now - ram->armed_at);
-}
-
-static int guard_trace_write(uint32_t now)
-{
-    struct fw_file f;
-    int opened = f_open(&f, GUARD_PATH, FW_O_RDWR | FW_O_CREAT | FW_O_TRUNC);
-    int written = -1, closed = -1;
-    if (opened) {
-        written = f_write(&f, "GOOD", 4);
-        closed = fw_file_close(&f);
-    }
-    char status[224];
-    char *out = guard_trace_state(status, now);
-    out = put_hex(put(out, "\nopen "), (uint32_t)opened);
-    out = put_hex(put(out, "\nwrite "), (uint32_t)written);
-    out = put_hex(put(out, "\nclose "), (uint32_t)closed);
-    out = put_hex(put(out, "\nreadback "), read_guard());
-    out = put(out, "\n");
-    write_file("/dirtyloader/guard-write.txt", status, (uint32_t)(out - status));
-    return written == 4;
-}
-#endif
-
-void core_tick(void)
-{
-    uint32_t now = fw_millis;
-#ifdef CORE_GUARD_DIAGNOSTICS
-    if (++ram->guard_ticks == 16u || ram->guard_ticks == 8192u) {
-        char status[160];
-        char *out = put(guard_trace_state(status, now), "\n");
-        const char *path;
-        if (ram->armed)
-            path = ram->guard_ticks == 16u ? "/dirtyloader/armed-start.txt" : "/dirtyloader/armed-later.txt";
-        else
-            path = ram->guard_ticks == 16u ? "/dirtyloader/guard-start.txt" : "/dirtyloader/guard-later.txt";
-        write_file(path, status, (uint32_t)(out - status));
-    }
-#endif
-    if (ram->armed && ram->booted && now - ram->armed_at >= ARMED_MS && FW_SD_MOUNTED()) {
-        int ok;
-#ifdef CORE_GUARD_DIAGNOSTICS
-        if (!ram->guard_attempted) {
-            ram->guard_attempted = 1;
-            ok = guard_trace_write(now);
-        } else
-#endif
-            ok = write_file(GUARD_PATH, "GOOD", 4);
-        if (ok) ram->armed = 0;
-        else ram->armed_at += 1000;
-    }
-}
+void core_tick(void) { }
 #ifdef CORE_MODEL01_MENU
 #include "model01_menu.h"
 #endif
@@ -790,7 +740,6 @@ static void serve(uint8_t cmd, uint8_t seq, const uint8_t *p, uint32_t len)
     struct fw_file f;
 
     if (cmd == C_RESTART) {
-        if (ram->armed && FW_SD_MOUNTED()) write_file(GUARD_PATH, "GOOD", 4);   /* asked for: not a hang */
         reply(cmd, seq, S_OK, 0, 0);
         uint32_t t = fw_millis;
         while (fw_millis - t < 50) { }                  /* let the reply leave */
@@ -1017,7 +966,6 @@ static void page_write(void)
     for (uint32_t i = 0; i < ram->page_n; i++)
         if (ram->page[i].on) { o = put(o, ram->page[i].name); *o++ = '\n'; }
     write_file("/dirtyloader/active.txt", t, (uint32_t)(o - t));
-    write_file(GUARD_PATH, "GOOD", 4);
 }
 
 static int boot_err(const char *name)               /* -1 not loaded at boot, 0 running, n refused */
@@ -1069,18 +1017,18 @@ static void page_draw_all(void)
 {
     char b[64], *o;
     for (int r = 0; r < FW_GRID_ROWS; r++) row(r, "");
-    o = put(b, ram->skipped == SKIP_CRASH ? " MODS (TELOS)   SKIPPED: A CRASH"
-             : ram->skipped == SKIP_HANG ? " MODS (TELOS)   SKIPPED: NO 10 S RUN"
-             : ram->skipped == SKIP_HOST ? " MODS (TELOS)   SKIPPED: SAFE BOOT"
-             : ram->skipped ? " MODS (TELOS)   SKIPPED" : " MODS (TELOS)");
-    *o = 0;
-    row(3, b);
+    row(3, ram->skipped ? " SAFE MODE - MODS NOT LOADED" : " MODS (TELOS)");
+    if (ram->skipped)
+        row(4, ram->guard_recovery == GUARD_CLEARED ? " REBOOT TO RE-ENABLE MODS"
+             : ram->guard_recovery == GUARD_WRITE_ERROR ? " SD: SET DIRTYLOADER/GUARD TO GOOD"
+             : " PRESS PLAY TO EXIT SAFE MODE");
     for (uint32_t i = 0; i <= ram->page_n; i++) {
         o = b;
         *o++ = ' ';
         *o++ = i == ram->page_sel ? '>' : ' ';
         if (i == ram->page_n) {
-            o = put(o, page_changed() ? "APPLY & RESTART" : "RESTART");
+            o = put(o, ram->skipped ? (ram->guard_recovery == GUARD_CLEARED ? "REBOOT TO RE-ENABLE MODS" : "CLEAR SKIP")
+                                    : page_changed() ? "APPLY & RESTART" : "RESTART");
             *o = 0;
             row(PAGE_TOP + (int)i + 1, b);
             o = put(b, " ");
@@ -1252,15 +1200,22 @@ static void page_input(void *view, int action)
         if (action == FW_KEY_OPT) { ram->page_mode = 0; fw_set_view(fw_ui, (int)ram->prev_view); }
         return;
     }
+    if (ram->skipped && action == FW_KEY_PLAY) {
+        guard_recover();
+        ram->page_dirty = 1;
+        return;
+    }
     uint32_t rows = ram->page_n + 2;                 /* the mods, RESTART, MOD MENU */
     if (action == FW_KEY_EDIT && ram->page_sel == ram->page_n + 1) { menu_show(PAGE_BACK_MODS); return; }
     if (action == FW_KEY_UP && ram->page_sel) ram->page_sel--;
     else if (action == FW_KEY_DOWN && ram->page_sel + 1 < rows) ram->page_sel++;
     else if (action == FW_KEY_OPT) { fw_set_view(fw_ui, FW_VIEW_SETTINGS); return; }
     else if (action == FW_KEY_EDIT) {
-        if (ram->page_sel == ram->page_n) {         /* RESTART also lifts the crash guard */
-            write_file(GUARD_PATH, "GOOD", 4);
-            restart_now();
+        if (ram->page_sel == ram->page_n) {
+            if (!ram->skipped) restart_now();
+            guard_recover();
+            ram->page_dirty = 1;
+            return;
         }
         page_set(ram->page_sel, !ram->page[ram->page_sel].on);
     }
@@ -1577,10 +1532,6 @@ void core_tick(void)
 #endif
     uint32_t usb = fw_usb_configuration != 0;
     if (usb != ram->usb_last) { ram->usb_last = usb; fire(EV_USB_W, usb, 0); }
-    if (ram->armed && ram->booted && fw_millis - ram->armed_at >= ARMED_MS && FW_SD_MOUNTED()) {
-        if (write_file(GUARD_PATH, "GOOD", 4)) ram->armed = 0;   /* this set runs: no hang at boot */
-        else ram->armed_at += 1000;
-    }
     uint32_t what = ram->song_pending;
     if (!what || !FW_SD_MOUNTED() || fw_millis - ram->song_at < SONG_WAIT) return;
     if (what == 2) {
@@ -1721,7 +1672,6 @@ uint32_t core_midi_read(void)
 /* ---- the API for mods (dl/core.h) --------------------------------------------------------------------------- */
 static void api_restart(void)
 {
-    if (ram->armed && FW_SD_MOUNTED()) write_file(GUARD_PATH, "GOOD", 4);       /* asked for: not a hang */
     uint32_t t = fw_millis;
     while (fw_millis - t < 50) { }                  /* let USB send what it has */
     restart_now();
@@ -2323,6 +2273,11 @@ static void lm_head(void)
     pui_text(lm_rect, 10, 9, "MOD LOADER", 3, PUI_BG);
     pui_stripes(lm_rect, 238, 4, 32, 3, 12, PUI_BG);
     pui_box(lm_rect, 290, 4, 186, 32, 2, PUI_PURPLE);
+    if (ram->skipped) {
+        pui_text(lm_rect, 301, 8, "SAFE MODE", 2, PUI_CREAM);
+        pui_text(lm_rect, 301, 23, "MODS NOT LOADED", 1, PUI_CREAM);
+        return;
+    }
     uint32_t on = 0;
     for (uint32_t i = 0; i < ram->page_n; i++) on += ram->page[i].on;
     char b[12], *o = b;
@@ -2378,6 +2333,13 @@ static void lm_foot(void)
 {
     lm_rect(4, 288, 472, 31, PUI_BG);
     pui_box(lm_rect, 4, 289, 472, 30, 2, PUI_PURPLE);
+    if (ram->skipped) {
+        const char *help = ram->guard_recovery == GUARD_CLEARED ? "REBOOT TO RE-ENABLE MODS   OPT BACK"
+                         : ram->guard_recovery == GUARD_WRITE_ERROR ? "SD: SET DIRTYLOADER/GUARD TO GOOD"
+                         : "PRESS PLAY TO EXIT SAFE MODE";
+        pui_text(lm_rect, 10, 297, help, 2, PUI_CREAM);
+        return;
+    }
     static const char *const kc[5] = { "E", "SE", "S}", "S{", "OPT" }, *const ki[4] = { "E", "SE", "S}", "OPT" },
                              *const ka[2] = { "E", "OPT" };
     const char *wc[5] = { "OPEN", "OFF", "OPTS", "INFO", "BACK" }, *wi[4] = { "OPEN", "OFF", "OPTIONS", "BACK" },
@@ -2651,7 +2613,7 @@ static void lm_close(void)
 /* back out of the MOD LOADER: if the mods on differ from the ones the boot loaded, ask to restart first */
 static void lm_leave(void)
 {
-    if (ram->lm_mode != LM_ASK && page_changed()) {
+    if (!ram->skipped && ram->lm_mode != LM_ASK && page_changed()) {
         ram->lm_mode = LM_ASK;
         ram->lm_dirty |= LM_D_ASK | LM_D_FOOT;
         return;
@@ -2687,11 +2649,13 @@ static void lm_input(int action)
 {
     uint32_t list[MAX_MODS], n = lm_list(list), sel = ram->lm_sel, was = sel;
     if (ram->lm_mode == LM_ASK) {                   /* RESTART TO APPLY? */
-        if (action == FW_KEY_EDIT) {
-            write_file(GUARD_PATH, "GOOD", 4);      /* as the MODS page's RESTART: the crash guard lifted */
-            restart_now();
-        }
+        if (action == FW_KEY_EDIT) restart_now();
         if (action == FW_KEY_OPT) lm_close();
+        return;
+    }
+    if (ram->skipped && action == FW_KEY_PLAY) {
+        guard_recover();
+        ram->lm_dirty |= LM_D_FOOT;
         return;
     }
     if (action == FW_KEY_OPT && ram->lm_mode == LM_INFO) { lm_mode_set(LM_CARDS); return; }
@@ -3155,7 +3119,7 @@ void core_load(void)
     ram->npages = ram->ndata = ram->nsettings = 0;
     ram->cur_page = 0;
     ram->midi_head = ram->midi_tail = 0;
-    ram->armed = 0;
+    ram->guard_recovery = GUARD_PENDING;
     ram->song[0] = 0;
     ram->usb_last = 0xFFu;
     ram->dest_clip = ram->dest_load_ok = 0;
@@ -3188,30 +3152,22 @@ void core_load(void)
 #endif
     o = put(o, "\n");
 
-    int skip = SKIP_NONE;
     uint32_t guard = read_guard();
     int host_skip = safe_boot_asked();
+    enum guard_skip_reason skip = guard_skip_reason(guard, crashed() && had_mods, host_skip);
     zero(ram->crash, sizeof ram->crash);
     if (crashed())
         for (uint32_t i = 0; i < 8; i++) ram->crash[i] = fw_fault_info[i];
-    if (crashed() && had_mods) {
+    if (skip == SKIP_CRASH) {
         o = put(o, "crash guard: the last boot with mods crashed (pc ");
         o = put_hex(o, fw_fault_info[6]);
         o = put(o, "), so no mods were loaded.\n");
         write_file(GUARD_PATH, "SKIP", 4);
-        skip = SKIP_CRASH;
-    } else if (host_skip) {
+    } else if (skip == SKIP_HOST) {
         o = put(o, "safe boot: the host asked (python -m dirtyloader.unit safe), so no mods were loaded.\n");
         write_file(GUARD_PATH, "SKIP", 4);
-        skip = SKIP_HOST;
-    } else if (guard == G_ARMD) {
-        o = put(o, "crash guard: the last boot with mods did not run 10 s (a hang, or the power went), so no mods "
-                   "were loaded.\n");
-        write_file(GUARD_PATH, "SKIP", 4);
-        skip = SKIP_HANG;
-    } else if (guard == G_SKIP) {
+    } else if (skip == SKIP_GUARD) {
         o = put(o, "crash guard: guard says SKIP, so no mods were loaded.\n");
-        skip = SKIP_GUARD;
     }
     if (crashed() && ram->sig == RAM_SIG && ram->fault_handled) {
         o = put(o, "ev_crash: the mods' handlers ran in the fault (pc ");
@@ -3222,7 +3178,9 @@ void core_load(void)
     if (crashed()) forget_crash();
     ram->skipped = (uint32_t)skip;
     if (skip)
-        o = put(o, "RESTART on the MODS page, or python -m dirtyloader.unit good, loads them again.\n");
+        o = put(o, "Clear SKIP on the mod screen or write GOOD to dirtyloader/guard, then restart.\n");
+    else if (guard == G_ARMD)
+        o = put(o, "crash guard: legacy ARMD marker ignored.\n");
 
     if (!skip) {
         struct fw_file f;
@@ -3234,12 +3192,6 @@ void core_load(void)
         }
         if (n < 0) n = 0;
         list[n] = 0;
-        for (char *q = list; *q; q++)                 /* a set to load: arm the guard until it has run 10 s */
-            if (*q != '\n' && *q != '\r' && *q != ' ') {
-                if (*q != '#') { write_file(GUARD_PATH, "ARMD", 4); ram->armed = 1; break; }
-                while (*q && *q != '\n') q++;
-                if (!*q) break;
-            }
         char *p = list;
         while (*p && o < status + STATUS_SIZE - 200) {
             char *line = p;
@@ -3299,7 +3251,7 @@ void core_load(void)
     write_file("/dirtyloader/status.txt", status, (uint32_t)(o - status));
 #ifdef CORE_GUARD_DIAGNOSTICS
     /* A later SKIP boot must not overwrite the reason the guard tripped. */
-    if (skip == SKIP_CRASH || skip == SKIP_HANG || skip == SKIP_HOST) {
+    if (skip == SKIP_CRASH || skip == SKIP_HOST) {
         char fault[160];
         char *end = put_dec(put(fault, "reason "), (uint32_t)skip);
         end = put_hex(put(end, "\nprevious_guard "), guard);
@@ -3384,10 +3336,6 @@ void core_boot(void)
     model01_install_menu();
 #endif
     ram->booted = 1;                                /* song loads from here on are the user's */
-    ram->armed_at = fw_millis;
-#ifdef CORE_GUARD_DIAGNOSTICS
-    ram->guard_ticks = ram->guard_attempted = 0;
-#endif
     ram->api = BOOT_API;
     __asm volatile("dsb\n isb" ::: "memory");
     ram->magic = RAM_MAGIC;
