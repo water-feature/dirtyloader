@@ -22,8 +22,9 @@ If the guard is at `SKIP`, MOD LOADER shows **SAFE MODE - MODS NOT LOADED** and 
 | Feature | Result |
 | --- | --- |
 | SD loading, TICK, MOD LOADER toggles, and guard recovery | Verified on Model:01 hardware |
+| Safe-mode recovery | Verified on Model:01 hardware. PLAY clears the guard and the device stays on until manually rebooted. |
 | Track Silence | Track 1 muted on hardware. Longer playback and restoration after disabling remain to be verified. |
-| Final panel layout and cursor handling | Passed ARM emulation. Hardware verification on this firmware revision is pending. |
+| Final panel layout and cursor handling | Passed ARM emulation. The safe-mode footer layout was verified on Model:01 hardware. |
 | SD heartbeat | Passed ARM emulation. A fresh hardware run remains to be recorded. |
 | TOUCH and AUDIO_OUT | Passed ARM emulation. Device verification is pending. |
 
