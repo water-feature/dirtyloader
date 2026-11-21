@@ -112,13 +112,8 @@ static void model01_draw(void *view)
 {
     for (int row = 0; row < FW_GRID_ROWS; row++) menu_row(row, "", '1');
     menu_row(MENU_TITLE_ROW, " MOD LOADER", '3');
-    if (ram->skipped) {
-        menu_row(MENU_TITLE_ROW + 1, " SAFE MODE - MODS NOT LOADED", '3');
-        menu_row(MENU_TITLE_ROW + 2, " UP/DN MOVE EDIT TOGGLE OPT BACK", '1');
-    } else {
-        menu_row(MENU_TITLE_ROW + 1, ram->page_n ? " UP/DN MOVE  EDIT TOGGLE" : " OPT BACK", '1');
-        if (ram->page_n) menu_row(MENU_TITLE_ROW + 2, " OPT BACK", '1');
-    }
+    menu_row(MENU_TITLE_ROW + 1, ram->page_n ? " UP/DN MOVE  EDIT TOGGLE" : " OPT BACK", '1');
+    if (ram->page_n) menu_row(MENU_TITLE_ROW + 2, " OPT BACK", '1');
     if (!ram->page_n) {
         const char *message = ram->last_action == MENU_NO_CARD ? " SD CARD NOT MOUNTED" :
                               ram->last_action == MENU_NO_FOLDER ? " CANNOT OPEN /DIRTYLOADER/MODS" :
@@ -126,8 +121,9 @@ static void model01_draw(void *view)
                               " NO DIRECTORY ENTRIES FOUND";
         menu_row(MENU_FIRST_ROW, message, '1');
     }
-    uint32_t first = ram->page_sel >= MENU_VISIBLE_MODS ? ram->page_sel - MENU_VISIBLE_MODS + 1 : 0;
-    for (uint32_t i = first; i < ram->page_n && i - first < MENU_VISIBLE_MODS; i++) {
+    uint32_t visible_mods = MENU_VISIBLE_MODS - (ram->skipped != 0);
+    uint32_t first = ram->page_sel >= visible_mods ? ram->page_sel - visible_mods + 1 : 0;
+    for (uint32_t i = first; i < ram->page_n && i - first < visible_mods; i++) {
         char line[FW_GRID_COLS + 1], *out = line;
         *out++ = i == ram->page_sel ? '>' : ' ';
         out = put(out, ram->page[i].on ? " ON  " : " OFF ");
@@ -136,6 +132,7 @@ static void model01_draw(void *view)
         menu_row(MENU_FIRST_ROW + (int)(i - first), line, '1');
     }
     if (ram->skipped) {
+        menu_row(MENU_STATUS_ROW - 1, " SAFE MODE - MODS NOT LOADED", '3');
         const char *help = ram->guard_recovery == GUARD_CLEARED ? " REBOOT TO RE-ENABLE MODS"
                          : ram->guard_recovery == GUARD_WRITE_ERROR ? " SD: SET DIRTYLOADER/GUARD TO GOOD"
                          : " PRESS PLAY TO EXIT SAFE MODE";
