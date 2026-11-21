@@ -219,7 +219,7 @@ static int write_file(const char *path, const char *text, uint32_t n)
     return ok;
 }
 
-#if !defined(CORE_SD_ONLY) || defined(CORE_MODEL01_MENU)
+#ifndef CORE_SD_ONLY
 static void restart_now(void)
 {
     *(volatile uint32_t *)0xE000ED0Cu = 0x05FA0004u;  /* SCB_AIRCR: SYSRESETREQ */
@@ -251,7 +251,7 @@ static uint32_t read_guard(void)
 #if !defined(CORE_SD_ONLY) || defined(CORE_MODEL01_MENU)
 static void guard_recover(void)
 {
-    if (ram->guard_recovery == GUARD_CLEARED) restart_now();
+    if (ram->guard_recovery == GUARD_CLEARED) return;
     ram->guard_recovery =
         FW_SD_MOUNTED() && write_file(GUARD_PATH, "GOOD", 4) && read_guard() == G_GOOD
         ? GUARD_CLEARED : GUARD_WRITE_ERROR;
@@ -1022,15 +1022,15 @@ static void page_draw_all(void)
     for (int r = 0; r < FW_GRID_ROWS; r++) row(r, "");
     row(3, ram->skipped ? " SAFE MODE - MODS NOT LOADED" : " MODS (TELOS)");
     if (ram->skipped)
-        row(4, ram->guard_recovery == GUARD_CLEARED ? " PLAY RESTART TO APPLY"
+        row(4, ram->guard_recovery == GUARD_CLEARED ? " REBOOT TO RE-ENABLE MODS"
              : ram->guard_recovery == GUARD_WRITE_ERROR ? " SD: SET DIRTYLOADER/GUARD TO GOOD"
-             : " PLAY CLEAR SKIP");
+             : " PRESS PLAY TO EXIT SAFE MODE");
     for (uint32_t i = 0; i <= ram->page_n; i++) {
         o = b;
         *o++ = ' ';
         *o++ = i == ram->page_sel ? '>' : ' ';
         if (i == ram->page_n) {
-            o = put(o, ram->skipped ? (ram->guard_recovery == GUARD_CLEARED ? "RESTART TO APPLY" : "CLEAR SKIP")
+            o = put(o, ram->skipped ? (ram->guard_recovery == GUARD_CLEARED ? "REBOOT TO RE-ENABLE MODS" : "CLEAR SKIP")
                                     : page_changed() ? "APPLY & RESTART" : "RESTART");
             *o = 0;
             row(PAGE_TOP + (int)i + 1, b);
@@ -2337,9 +2337,9 @@ static void lm_foot(void)
     lm_rect(4, 288, 472, 31, PUI_BG);
     pui_box(lm_rect, 4, 289, 472, 30, 2, PUI_PURPLE);
     if (ram->skipped) {
-        const char *help = ram->guard_recovery == GUARD_CLEARED ? "PLAY RESTART TO APPLY   OPT BACK"
+        const char *help = ram->guard_recovery == GUARD_CLEARED ? "REBOOT TO RE-ENABLE MODS   OPT BACK"
                          : ram->guard_recovery == GUARD_WRITE_ERROR ? "SD: SET DIRTYLOADER/GUARD TO GOOD"
-                         : "PLAY CLEAR SKIP   SHIFT+EDIT TOGGLE";
+                         : "PRESS PLAY TO EXIT SAFE MODE";
         pui_text(lm_rect, 10, 297, help, 2, PUI_CREAM);
         return;
     }

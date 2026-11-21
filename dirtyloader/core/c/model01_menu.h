@@ -114,9 +114,7 @@ static void model01_draw(void *view)
     menu_row(MENU_TITLE_ROW, " MOD LOADER", '3');
     if (ram->skipped) {
         menu_row(MENU_TITLE_ROW + 1, " SAFE MODE - MODS NOT LOADED", '3');
-        menu_row(MENU_TITLE_ROW + 2, ram->guard_recovery == GUARD_CLEARED
-                 ? " EDIT TOGGLE PLAY REBOOT OPT BACK"
-                 : " UP/DN MOVE EDIT TOGGLE OPT BACK", '1');
+        menu_row(MENU_TITLE_ROW + 2, " UP/DN MOVE EDIT TOGGLE OPT BACK", '1');
     } else {
         menu_row(MENU_TITLE_ROW + 1, ram->page_n ? " UP/DN MOVE  EDIT TOGGLE" : " OPT BACK", '1');
         if (ram->page_n) menu_row(MENU_TITLE_ROW + 2, " OPT BACK", '1');
